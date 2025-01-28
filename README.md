@@ -6,3 +6,7 @@ For now, this is very much in draft and so don't want to add too many details. S
     * Removing all players and red side teams, leaving only blue teams
     * Removing all extra data besides first 6 bans and first pick
     * Removing all games above game 1 to prevent fearless drafts from causing additional issues
+
+Future steps:
+1. Be able to include additional input such as patch, teams, players, disabled champs, etc.
+2. Be able to guess the next ban or pick based on the previous input, either its own previous input or the actual pick/ban in a live draft
