@@ -23,11 +23,11 @@ class BansPickDataset(Dataset):
         row = self.data.iloc[index]
         bans = row[:-1].values.astype(str)
         normalized_bans = [
-            self.valid_picks.index(int(self.champ_enum[champ if champ != 'nan' else "MISSING"].value))
+            self.valid_picks.index(int(self.champ_enum[str(champ).upper() if champ != 'nan' else "MISSING"].value))
             for champ in bans
         ]
         pick = row[-1]
-        pick_int = int(self.champ_enum[pick].value)
+        pick_int = int(self.champ_enum[str(pick).upper()].value)
         normalized_pick = self.valid_picks.index(pick_int)
         mat1 = torch.tensor(normalized_bans)
         mat2 = torch.tensor(normalized_pick)
