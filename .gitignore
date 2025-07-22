@@ -83,3 +83,6 @@ Desktop.ini
 
 # Other
 *.log 
+
+*.pkl
+*.pth
