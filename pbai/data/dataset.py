@@ -83,9 +83,16 @@ class DraftDataset(Dataset):
         as the start of a new series. Adds a 'seriesid' column to the DataFrame.
         """
         # Sort to ensure games are grouped by matchup and order
-        df = df.sort_values(['league', 'split', 'year', 'gameid', 'teamid', 'game']).reset_index(drop=True)
+        sort_columns = ['league', 'split', 'year']
+        if 'date' in df.columns:
+            sort_columns.append('date')
+        sort_columns.extend(['gameid', 'teamid', 'game'])
+        df = df.sort_values(sort_columns).reset_index(drop=True)
         series_counters = {}  # key: matchup key, value: current series number
         last_game_numbers = {}  # key: matchup key, value: last observed game number
+        last_dates = {}  # key: matchup key, value: last observed date (no series spans multiple days)
+
+        parsed_dates = pd.to_datetime(df.get('date'), errors='coerce') if 'date' in df.columns else None
 
         rows_to_keep = []
         series_ids = []
@@ -115,16 +122,31 @@ class DraftDataset(Dataset):
             matchup = tuple(sorted([str(teamid), str(other_teamid)]))
             key = (league, split, year, matchup)
             game_number = row['game']
+            if parsed_dates is not None:
+                parsed_value = parsed_dates.iloc[idx]
+                current_date = parsed_value.date() if not pd.isna(parsed_value) else None
+            else:
+                current_date = None
 
             # Start a new series if this is the first time we've seen this matchup
             # or if the game counter reset (i.e., fearless draft should restart).
-            if key not in series_counters or game_number < last_game_numbers.get(key, 0):
+            if (
+                key not in series_counters
+                or game_number < last_game_numbers.get(key, 0)
+                or (
+                    current_date is not None
+                    and last_dates.get(key) is not None
+                    and current_date != last_dates.get(key)
+                )
+            ):
                 series_counters[key] = series_counters.get(key, 0) + 1
 
             series_id = f"{league}_{split}_{year}_{matchup[0]}_{matchup[1]}_S{series_counters[key]}"
             rows_to_keep.append(idx)
             series_ids.append(series_id)
             last_game_numbers[key] = game_number
+            if current_date is not None:
+                last_dates[key] = current_date
 
         df = df.loc[rows_to_keep].copy()
         df['seriesid'] = series_ids

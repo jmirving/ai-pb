@@ -241,6 +241,57 @@ class DraftDatasetInferSeriesIdsTest(unittest.TestCase):
         self.assertEqual(len(second_series.unique()), 1)
         self.assertNotEqual(first_series.iloc[0], second_series.iloc[0])
 
+    def test_new_series_started_when_matchup_date_changes(self):
+        """Matchups played on different days should not share a series identifier."""
+
+        dataframe = pd.DataFrame([
+            {
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'date': '2024-02-01 15:00:00',
+                'gameid': 10,
+                'teamid': 100,
+                'game': 1,
+            },
+            {
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'date': '2024-02-01 15:00:00',
+                'gameid': 10,
+                'teamid': 200,
+                'game': 1,
+            },
+            {
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'date': '2024-02-02 18:00:00',
+                'gameid': 11,
+                'teamid': 100,
+                'game': 1,
+            },
+            {
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'date': '2024-02-02 18:00:00',
+                'gameid': 11,
+                'teamid': 200,
+                'game': 1,
+            },
+        ])
+
+        with_series = DraftDataset._infer_series_ids(dataframe)
+
+        first_series = with_series[with_series['gameid'] == 10]['seriesid'].unique()
+        second_series = with_series[with_series['gameid'] == 11]['seriesid'].unique()
+
+        self.assertEqual(len(first_series), 1)
+        self.assertEqual(len(second_series), 1)
+        self.assertNotEqual(first_series[0], second_series[0])
+
 
 class DraftDatasetAggregateTrainingDataNonNumericPatchTest(unittest.TestCase):
     def test_latest_patch_detected_when_cast_to_float_fails(self):
