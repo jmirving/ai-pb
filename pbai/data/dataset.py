@@ -86,7 +86,7 @@ class DraftDataset(Dataset):
         df = df.sort_values(['league', 'split', 'year', 'gameid', 'teamid', 'game']).reset_index(drop=True)
         series_ids = []
         series_counters = {}  # key: matchup key, value: current series number
-        last_game_numbers = {}  # key: matchup key, value: last game number
+        last_game_numbers = {}  # key: matchup key, value: last observed game number
 
         for idx, row in df.iterrows():
             teamid = row['teamid']
@@ -99,8 +99,9 @@ class DraftDataset(Dataset):
             key = (league, split, year, matchup)
             game_number = row['game']
 
-            # Start a new series if this is the first time we've seen this matchup, or if game_number resets to 1
-            if key not in series_counters or game_number == 1:
+            # Start a new series if this is the first time we've seen this matchup
+            # or if the game counter reset (i.e., fearless draft should restart).
+            if key not in series_counters or game_number < last_game_numbers.get(key, 0):
                 series_counters[key] = series_counters.get(key, 0) + 1
 
             series_id = f"{league}_{split}_{year}_{matchup[0]}_{matchup[1]}_S{series_counters[key]}"
@@ -151,71 +152,72 @@ class DraftDataset(Dataset):
         """
         logging.info("Preprocessing samples")
         samples = []
-        # Define the correct draft order (20 steps)
-        DRAFT_ORDER = [
-            ('blue', 'ban', 1), ('red', 'ban', 1),
-            ('blue', 'ban', 2), ('red', 'ban', 2),
-            ('blue', 'ban', 3), ('red', 'ban', 3),
-            ('blue', 'pick', 1), ('red', 'pick', 1),
-            ('red', 'pick', 2), ('blue', 'pick', 2),
-            ('blue', 'pick', 3), ('red', 'pick', 3),
-            ('red', 'ban', 4), ('blue', 'ban', 4),
-            ('red', 'ban', 5), ('blue', 'ban', 5),
-            ('red', 'pick', 4), ('blue', 'pick', 4),
-            ('blue', 'pick', 5), ('red', 'pick', 5)
-        ]
-        grouped = self.data.groupby(['seriesid', 'gameid', 'side'])
-        for (seriesid, gameid, side), group in grouped:
-            logging.info(f"Series {seriesid}, game {gameid}, side {side}")
-            # Only process a single side per game, since we are returning a total
-            # if side != 'blue':
-            #     continue
-            # Track picks from previous games in the series (for Fearless Draft)
-            series_picked = set()
-            # Get all previous games in the series and add their picks to the series_picked set
-            if gameid != 1:
-                prev_games = self.data[(self.data['seriesid'] == seriesid) & (self.data['gameid'] < gameid)]
-                for _, prev_row in prev_games.iterrows():
-                    for i in range(1, 6):
-                        pick_col = f'pick{i}'
-                        if pick_col in prev_row and not pd.isna(prev_row[pick_col]):
-                            series_picked.add(prev_row[pick_col])
-            logging.info(f"Already picked in series: {series_picked}")
-            # Create the draft sequence
-            draft_sequence = [0] * self.draft_features
-            # Get the blue team row
-            blue_row = self.data[(self.data['seriesid'] == seriesid) & (self.data['gameid'] == gameid) & (self.data['side'] == 'Blue')]
-            # Find the associated red team row
-            red_row = self.data[(self.data['seriesid'] == seriesid) & (self.data['gameid'] == gameid) & (self.data['side'] == 'Red')]
-            # Interleave the blue and red rows into the draft sequence via the DRAFT_ORDER
-            draft_sequence = []
-            for side, action_type, action_number in DRAFT_ORDER:
-                if side == 'blue':
-                    if action_type == 'ban':
-                        champ_name = blue_row[f'ban{action_number}'].values[0]
-                        champ_idx = self._normalize_champion_id(champ_name)
-                        draft_sequence.append(champ_idx)
-                    else:
-                        champ_name = blue_row[f'pick{action_number}'].values[0]
-                        champ_idx = self._normalize_champion_id(champ_name)
-                        draft_sequence.append(champ_idx)
-                else:
-                    if action_type == 'ban':
-                        champ_name = red_row[f'ban{action_number}'].values[0]
-                        champ_idx = self._normalize_champion_id(champ_name)
-                        draft_sequence.append(champ_idx)
-                    else:
-                        champ_name = red_row[f'pick{action_number}'].values[0]
-                        champ_idx = self._normalize_champion_id(champ_name)
-                        draft_sequence.append(champ_idx)
-            logging.info(f"Draft sequence: {draft_sequence}")
+        # Group by series/game so that a single iteration has access to both blue and red
+        # rows; we need information from *both* sides to reconstruct the pick/ban order.
+        grouped_games = self.data.groupby(['seriesid', 'gameid'])
 
-            # Store the sample
-            samples.append({
-                'draft_sequence': draft_sequence.copy(),
-                'target': target,
-                'already_picked_or_banned': series_picked
-            })
+        for (seriesid, gameid), game_rows in grouped_games:
+            logging.info(f"Processing series %s game %s", seriesid, gameid)
+
+            blue_rows = game_rows[game_rows['side'].str.lower() == 'blue']
+            red_rows = game_rows[game_rows['side'].str.lower() == 'red']
+
+            if blue_rows.empty or red_rows.empty:
+                logging.warning(
+                    "Missing blue or red side data for series %s game %s; skipping", seriesid, gameid
+                )
+                continue
+
+            blue_row = blue_rows.iloc[0]
+            red_row = red_rows.iloc[0]
+
+            # Seed fearless draft state with picks from previous games in the series
+            fearless_picks = set()
+            previous_games = self.data[
+                (self.data['seriesid'] == seriesid) & (self.data['gameid'] < gameid)
+            ]
+            for _, prev_row in previous_games.iterrows():
+                for pick_number in range(1, 6):
+                    pick_col = f'pick{pick_number}'
+                    if pick_col in prev_row and not pd.isna(prev_row[pick_col]):
+                        # Fearless draft only restricts previously *picked* champions.
+                        fearless_picks.add(str(prev_row[pick_col]).upper())
+
+            used_champions = set(fearless_picks)
+            draft_sequence = [0] * self.draft_features
+
+            # DRAFT_ORDER comes from pbai.utils.draft_order and encodes (side, action, slot)
+            for event_index, (side, action_type, action_number) in enumerate(DRAFT_ORDER):
+                row = blue_row if side == 'blue' else red_row
+                column_prefix = 'ban' if action_type == 'ban' else 'pick'
+                column_name = f'{column_prefix}{action_number}'
+                champion_name = row.get(column_name)
+                champion_index = self._normalize_champion_id(champion_name)
+
+                if champion_index == 0:
+                    logging.warning(
+                        "Encountered missing champion for %s %s %s in series %s game %s; skipping sample",
+                        side,
+                        action_type,
+                        action_number,
+                        seriesid,
+                        gameid,
+                    )
+                    continue
+
+                samples.append(
+                    {
+                        'draft_sequence': draft_sequence.copy(),
+                        'target': champion_index,
+                        'already_picked_or_banned': set(used_champions),
+                    }
+                )
+
+                if pd.notna(champion_name):
+                    used_champions.add(str(champion_name).upper())
+
+                draft_sequence[event_index] = champion_index
+
         return samples
 
     def __len__(self):
