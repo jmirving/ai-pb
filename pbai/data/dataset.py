@@ -140,8 +140,11 @@ class DraftDataset(Dataset):
         if pd.isna(champion_name) or champion_name == 'nan':
             champion_name = "MISSING"
         
-        # Convert to uppercase for consistency
-        champion_name = str(champion_name).upper()
+        # Normalize spacing/casing because Oracle's Elixir exports often include
+        # padding around champion names. Whitespace would otherwise cause a
+        # lookup miss and mark the champion as ``MISSING`` which discards the
+        # sample entirely (and tanks model accuracy).
+        champion_name = str(champion_name).strip().upper()
         
         # Return sequential index
         return self.champion2idx.get(champion_name, self.champion2idx['MISSING'])

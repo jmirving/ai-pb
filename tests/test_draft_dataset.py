@@ -133,6 +133,23 @@ class DraftDatasetPreprocessSamplesTest(unittest.TestCase):
             dataset._normalize_champion_id('FIDDLESTICKS'),
         )
 
+    def test_whitespace_in_source_names_does_not_drop_samples(self):
+        """Champions with padded whitespace should still be recognised."""
+
+        messy_dataframe = self.dataframe.copy()
+        messy_dataframe.loc[0, 'ban1'] = ' Aatrox '
+        messy_dataframe.loc[1, 'ban1'] = '  Darius'
+
+        dataset = DraftDataset(FakeIngestionService(messy_dataframe))
+
+        first_sample = dataset.samples[0]
+        expected_index = dataset._normalize_champion_id('AATROX')
+        self.assertEqual(first_sample['target'], expected_index)
+
+        # The follow-up event should carry the trimmed ban forward as context.
+        second_sample = dataset.samples[1]
+        self.assertEqual(second_sample['draft_sequence'][0], expected_index)
+
 
 if __name__ == '__main__':
     unittest.main()
