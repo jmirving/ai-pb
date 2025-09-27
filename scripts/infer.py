@@ -1,7 +1,7 @@
-"""
-infer.py
+"""Entry point for running inference with trained models.
 
-This script will serve as the entry point for running inference with trained models in the future.
+This placeholder keeps the CLI contract in place while the inference
+pipeline is being implemented.
 """
 
-# Future: Implement model loading and inference logic here. 
+# TODO: Implement model loading and inference logic here.
