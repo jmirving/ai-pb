@@ -84,9 +84,12 @@ class DraftDataset(Dataset):
         """
         # Sort to ensure games are grouped by matchup and order
         df = df.sort_values(['league', 'split', 'year', 'gameid', 'teamid', 'game']).reset_index(drop=True)
-        series_ids = []
         series_counters = {}  # key: matchup key, value: current series number
         last_game_numbers = {}  # key: matchup key, value: last observed game number
+
+        rows_to_keep = []
+        series_ids = []
+        drop_gameids = set()
 
         for idx, row in df.iterrows():
             teamid = row['teamid']
@@ -94,7 +97,21 @@ class DraftDataset(Dataset):
             league = row['league']
             split = row['split']
             year = row['year']
-            other_teamid = df[(df['gameid'] == gameid) & (df['teamid'] != teamid)]['teamid'].values[0]
+            opponent_rows = df[(df['gameid'] == gameid) & (df['teamid'] != teamid)]
+
+            if opponent_rows.empty:
+                if gameid not in drop_gameids:
+                    logging.warning(
+                        "Missing opponent data for league=%s split=%s year=%s gameid=%s; dropping game",
+                        league,
+                        split,
+                        year,
+                        gameid,
+                    )
+                drop_gameids.add(gameid)
+                continue
+
+            other_teamid = opponent_rows['teamid'].iloc[0]
             matchup = tuple(sorted([str(teamid), str(other_teamid)]))
             key = (league, split, year, matchup)
             game_number = row['game']
@@ -105,11 +122,13 @@ class DraftDataset(Dataset):
                 series_counters[key] = series_counters.get(key, 0) + 1
 
             series_id = f"{league}_{split}_{year}_{matchup[0]}_{matchup[1]}_S{series_counters[key]}"
+            rows_to_keep.append(idx)
             series_ids.append(series_id)
             last_game_numbers[key] = game_number
 
-        df = df.copy()
+        df = df.loc[rows_to_keep].copy()
         df['seriesid'] = series_ids
+        df = df[~df['gameid'].isin(drop_gameids)].reset_index(drop=True)
         return df
     
     def _initialize_processors(self):

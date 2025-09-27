@@ -84,6 +84,97 @@ class DraftDatasetAggregateTrainingDataTest(unittest.TestCase):
         # Both rows should receive the same inferred seriesid for the matchup.
         self.assertEqual(len(aggregated['seriesid'].unique()), 1)
 
+    def test_incomplete_games_are_dropped_during_aggregation(self):
+        """Games missing a side should be ignored rather than raising an error."""
+
+        dataframe = pd.DataFrame([
+            {
+                'patch': '13.3',
+                'participantid': 100,
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'gameid': 10,
+                'teamid': 111,
+                'game': 1,
+                'side': 'Blue',
+            },
+            {
+                'patch': '13.3',
+                'participantid': 200,
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'gameid': 10,
+                'teamid': 222,
+                'game': 1,
+                'side': 'Red',
+            },
+            {
+                'patch': '13.3',
+                'participantid': 100,
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'gameid': 11,
+                'teamid': 333,
+                'game': 1,
+                'side': 'Blue',
+            },
+        ])
+
+        class _Service:
+            def __init__(self, df):
+                self._df = df
+
+            def get_all_data_df(self):
+                return self._df.copy()
+
+        aggregated = DraftDataset.aggregate_training_data(_Service(dataframe))
+
+        self.assertEqual(len(aggregated), 2)
+        self.assertTrue((aggregated['gameid'] == 10).all())
+        self.assertEqual(len(aggregated['seriesid'].unique()), 1)
+
+    def test_only_incomplete_games_results_in_empty_dataframe(self):
+        """If every game is incomplete the aggregation should return nothing."""
+
+        dataframe = pd.DataFrame([
+            {
+                'patch': '13.3',
+                'participantid': 100,
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'gameid': 11,
+                'teamid': 333,
+                'game': 1,
+                'side': 'Blue',
+            },
+            {
+                'patch': '13.3',
+                'participantid': 100,
+                'league': 'LCS',
+                'split': 'Spring',
+                'year': 2024,
+                'gameid': 12,
+                'teamid': 444,
+                'game': 1,
+                'side': 'Blue',
+            },
+        ])
+
+        class _Service:
+            def __init__(self, df):
+                self._df = df
+
+            def get_all_data_df(self):
+                return self._df.copy()
+
+        aggregated = DraftDataset.aggregate_training_data(_Service(dataframe))
+
+        self.assertTrue(aggregated.empty)
+
 
 class DraftDatasetInferSeriesIdsTest(unittest.TestCase):
     def test_new_series_started_when_game_counter_resets(self):
