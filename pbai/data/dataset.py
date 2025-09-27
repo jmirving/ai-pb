@@ -82,23 +82,30 @@ class DraftDataset(Dataset):
         and game number reset. Uses teamid for both blue and red teams. Treats a reset of game number to 1
         as the start of a new series. Adds a 'seriesid' column to the DataFrame.
         """
+        print("[infer_series_ids] starting with", len(df), "rows")
+        print("[infer_series_ids] incoming columns:", list(df.columns))
         # Sort to ensure games are grouped by matchup and order
         sort_columns = ['league', 'split', 'year']
         if 'date' in df.columns:
             sort_columns.append('date')
         sort_columns.extend(['gameid', 'teamid', 'game'])
+        print("[infer_series_ids] sorting by columns:", sort_columns)
         df = df.sort_values(sort_columns).reset_index(drop=True)
+        print("[infer_series_ids] after sort head:\n", df.head())
         series_counters = {}  # key: matchup key, value: current series number
         last_game_numbers = {}  # key: matchup key, value: last observed game number
         last_dates = {}  # key: matchup key, value: last observed date (no series spans multiple days)
 
         parsed_dates = pd.to_datetime(df.get('date'), errors='coerce') if 'date' in df.columns else None
+        if parsed_dates is not None:
+            print("[infer_series_ids] parsed date example:", parsed_dates.head())
 
         rows_to_keep = []
         series_ids = []
         drop_gameids = set()
 
         for idx, row in df.iterrows():
+            print("[infer_series_ids] processing index", idx, "gameid", row['gameid'], "teamid", row['teamid'])
             teamid = row['teamid']
             gameid = row['gameid']
             league = row['league']
@@ -107,6 +114,12 @@ class DraftDataset(Dataset):
             opponent_rows = df[(df['gameid'] == gameid) & (df['teamid'] != teamid)]
 
             if opponent_rows.empty:
+                print(
+                    "[infer_series_ids] no opponent rows found for gameid",
+                    gameid,
+                    "teamid",
+                    teamid,
+                )
                 if gameid not in drop_gameids:
                     logging.warning(
                         "Missing opponent data for league=%s split=%s year=%s gameid=%s; dropping game",
@@ -122,6 +135,14 @@ class DraftDataset(Dataset):
             matchup = tuple(sorted([str(teamid), str(other_teamid)]))
             key = (league, split, year, matchup)
             game_number = row['game']
+            print(
+                "[infer_series_ids] matchup",
+                matchup,
+                "key",
+                key,
+                "game_number",
+                game_number,
+            )
             if parsed_dates is not None:
                 parsed_value = parsed_dates.iloc[idx]
                 current_date = parsed_value.date() if not pd.isna(parsed_value) else None
@@ -139,18 +160,47 @@ class DraftDataset(Dataset):
                     and current_date != last_dates.get(key)
                 )
             ):
+                print(
+                    "[infer_series_ids] starting new series for key",
+                    key,
+                    "previous game",
+                    last_game_numbers.get(key),
+                    "current",
+                    game_number,
+                    "current_date",
+                    current_date,
+                    "last_date",
+                    last_dates.get(key),
+                )
                 series_counters[key] = series_counters.get(key, 0) + 1
 
             series_id = f"{league}_{split}_{year}_{matchup[0]}_{matchup[1]}_S{series_counters[key]}"
+            print(
+                "[infer_series_ids] assigned series_id",
+                series_id,
+                "for index",
+                idx,
+            )
             rows_to_keep.append(idx)
             series_ids.append(series_id)
             last_game_numbers[key] = game_number
             if current_date is not None:
+                print(
+                    "[infer_series_ids] updating last date for key",
+                    key,
+                    "to",
+                    current_date,
+                )
                 last_dates[key] = current_date
 
         df = df.loc[rows_to_keep].copy()
+        print("[infer_series_ids] kept", len(df), "rows after opponent filtering")
         df['seriesid'] = series_ids
+        print("[infer_series_ids] assigned series ids head:\n", df[['gameid', 'teamid', 'seriesid']].head())
         df = df[~df['gameid'].isin(drop_gameids)].reset_index(drop=True)
+        if drop_gameids:
+            print("[infer_series_ids] dropped gameids due to missing opponent:", drop_gameids)
+        print("[infer_series_ids] final row count", len(df))
         return df
     
     def _initialize_processors(self):
