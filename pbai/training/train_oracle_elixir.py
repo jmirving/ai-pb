@@ -3,6 +3,7 @@ Training logic for Oracle's Elixir data using the new DraftDataset and DraftMLP.
 This module provides the train_oracle_elixir() function for use by scripts or admin tools.
 """
 
+import copy
 import logging
 import torch
 from torch._C import NoneType
@@ -123,6 +124,32 @@ def run_epoch(model, data_loader, loss_function, optimizer=None, device='cpu', d
     return avg_loss
 
 
+def evaluate_model(model, data_loader, loss_function, device='cpu'):
+    """Evaluate the model and return average loss and top-1 accuracy."""
+    model.eval()
+    total_loss = 0.0
+    correct_predictions = 0
+    total_examples = 0
+
+    with torch.no_grad():
+        for batch in data_loader:
+            features = {
+                'draft_sequence': batch['draft_sequence'].to(device),
+            }
+            outputs = model(features)
+            masked_outputs = outputs.masked_fill(batch['output_mask'].to(device) == 0, -1e9)
+            loss = loss_function(masked_outputs, batch['target'].to(device))
+            total_loss += loss.item()
+
+            predictions = masked_outputs.argmax(dim=1)
+            correct_predictions += (predictions == batch['target'].to(device)).sum().item()
+            total_examples += batch['target'].size(0)
+
+    avg_loss = total_loss / len(data_loader) if len(data_loader) > 0 else 0.0
+    accuracy = (correct_predictions / total_examples) if total_examples > 0 else 0.0
+    return avg_loss, accuracy
+
+
 def train_oracle_elixir(oracle_elixir_path=None, processed_data_dir="data/processed", model_path="models/draft_mlp_oracle_elixir.pth", epochs=20, batch_size=32, lr=0.001):
     set_seed(42)
     
@@ -147,13 +174,23 @@ def train_oracle_elixir(oracle_elixir_path=None, processed_data_dir="data/proces
         
         # Split dataset
         indices = np.arange(len(dataset))
-        train_indices, val_indices = train_test_split(indices, test_size=0.2, random_state=42, shuffle=True)
-        
+        train_val_indices, test_indices = train_test_split(indices, test_size=0.1, random_state=42, shuffle=True)
+        val_relative_size = 0.1111  # approximately 10% of the original dataset
+        train_indices, val_indices = train_test_split(
+            train_val_indices,
+            test_size=val_relative_size,
+            random_state=42,
+            shuffle=True,
+        )
+
         from torch.utils.data import Subset
         train_dataset = Subset(dataset, train_indices)
         val_dataset = Subset(dataset, val_indices)
-        
-        logging.info(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
+        test_dataset = Subset(dataset, test_indices)
+
+        logging.info(
+            f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}, Test samples: {len(test_dataset)}"
+        )
         
         # Initialize model
         champ_enum_obj = champ_enum.create_champ_enum()
@@ -174,10 +211,10 @@ def train_oracle_elixir(oracle_elixir_path=None, processed_data_dir="data/proces
         # Data loaders
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+        test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
         
         # --- TRAINING LOOP ---
         best_val_loss = float('inf')
-        model_save_path = model_path
         
         logging.info(f"Starting training for {epochs} epochs with batch size {batch_size} and learning rate {lr}")
         logging.info(f"Model architecture: {feature_dims}")
@@ -187,30 +224,45 @@ def train_oracle_elixir(oracle_elixir_path=None, processed_data_dir="data/proces
         logging.info(f"Total training batches per epoch: {total_train_batches}")
         logging.info(f"Total validation batches per epoch: {total_val_batches}")
         
+        best_model_state = None
+
         for epoch in range(epochs):
+            epoch_start_time = time.time()
             train_loss = run_epoch(model, train_loader, loss_function, optimizer, device, dataset, is_train=True)
             print(f"Epoch {epoch+1}, Train Loss: {train_loss:.4f}")
-            val_loss = run_epoch(model, val_loader, loss_function, optimizer=None, device=device, dataset=dataset, is_train=False)
+            val_loss = run_epoch(
+                model,
+                val_loader,
+                loss_function,
+                optimizer=None,
+                device=device,
+                dataset=dataset,
+                is_train=False,
+            )
             print(f"Epoch {epoch+1}, Validation Loss: {val_loss:.4f}")
-            
+
             # Save best model
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model.state_dict(), model_save_path)
+                best_model_state = copy.deepcopy(model.state_dict())
                 logging.info(f"New best model saved with validation loss: {best_val_loss:.4f}")
             else:
                 logging.info(f"Validation loss {val_loss:.4f} did not improve on best {best_val_loss:.4f}")
-            
+
             # Log epoch timing
-            epoch_start_time = time.time() # Define epoch_start_time here
             epoch_time = time.time() - epoch_start_time
             logging.info(f"Epoch {epoch+1}/{epochs} completed in {epoch_time:.2f} seconds")
-        
-        # Save model
-        os.makedirs(os.path.dirname(model_path), exist_ok=True)
-        torch.save(model.state_dict(), model_path)
-        logging.info(f"Model saved to {model_path}")
+
+        # Persist and reload best model for evaluation
+        if best_model_state is not None:
+            os.makedirs(os.path.dirname(model_path), exist_ok=True)
+            torch.save(best_model_state, model_path)
+            model.load_state_dict(best_model_state)
+            logging.info(f"Best model saved to {model_path}")
         logging.info(f"Training completed successfully! Best validation loss: {best_val_loss:.4f}")
+        test_loss, test_accuracy = evaluate_model(model, test_loader, loss_function, device=device)
+        logging.info(f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy * 100:.2f}%")
+        print(f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy * 100:.2f}%")
     except Exception as e:
         logging.error(f"Training failed: {str(e)}")
-        raise 
+        raise
