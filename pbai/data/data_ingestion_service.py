@@ -1,10 +1,11 @@
-"""
-Data service layer for raw data ingestion and cleaning from Oracle's Elixir data.
-"""
+"""Data service layer for raw data ingestion and cleaning from Oracle's Elixir data."""
 
+import logging
 import os
+from typing import Dict, List, Optional, Sequence
+
 import pandas as pd
-from typing import Optional, Dict, Sequence, List
+
 from .storage import DataRepository
 
 class DataIngestionService:
@@ -50,6 +51,46 @@ class DataIngestionService:
         else:
             raise TypeError(f"Expected DataFrame or Series from {context}")
 
+    def _clean_all_data(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Remove incomplete draft rows before exposing Oracle's Elixir data."""
+        if dataframe is None or dataframe.empty:
+            return dataframe
+
+        if "participantid" not in dataframe.columns:
+            return dataframe
+
+        pick_columns = [
+            column
+            for column in dataframe.columns
+            if column.lower().startswith("pick")
+        ]
+
+        if not pick_columns:
+            return dataframe
+
+        cleaned = dataframe.copy()
+        picks_only = cleaned[pick_columns].copy()
+
+        for column in pick_columns:
+            picks_only[column] = picks_only[column].apply(
+                lambda value: value.strip() if isinstance(value, str) else value
+            )
+
+        missing_picks_mask = picks_only.isna() | (picks_only == "")
+        has_missing_pick = missing_picks_mask.any(axis=1)
+        team_row_mask = cleaned["participantid"].isin([100, 200])
+        rows_to_drop = team_row_mask & has_missing_pick
+
+        if rows_to_drop.any():
+            dropped_count = int(rows_to_drop.sum())
+            logging.debug(
+                "Dropping %d Oracle's Elixir rows with incomplete picks.",
+                dropped_count,
+            )
+            cleaned = cleaned.loc[~rows_to_drop].copy()
+
+        return cleaned
+
     def get_all_data_df(
         self,
         force_refresh: bool = False,
@@ -61,6 +102,7 @@ class DataIngestionService:
         if force_refresh or self.repository.is_data_stale("all", source_modified):
             # Read and clean raw data
             source_data = pd.read_csv(self.source_path)
+            source_data = self._clean_all_data(source_data)
             # Optionally: add basic cleaning/validation here
             self.repository.save_all_raw_data(
                 source_data,
@@ -70,7 +112,8 @@ class DataIngestionService:
             return source_data
         else:
             result = self.repository.load_all_raw_data()
-            return self._ensure_dataframe(result, "repository.load_all_data")
+            result = self._ensure_dataframe(result, "repository.load_all_data")
+            return self._clean_all_data(result)
 
     def get_players_df(self, force_refresh: bool = False) -> pd.DataFrame:
         """Get cleaned player DataFrame (participantid 1-10)"""
