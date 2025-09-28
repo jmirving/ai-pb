@@ -68,6 +68,7 @@ python scripts/ingest_oracle_elixir.py \
 
 - Use `--force-refresh` to ignore cached parquet files and re-read the CSV.
 - Data is written to `data/processed/` with rolling version cleanup to keep disk usage in check.
+- Pass `--export-format csv` to emit human-readable CSV siblings next to the parquet caches.
 
 ### Stage 2 – Model Training
 Training consumes the cached data, constructs the `DraftDataset`, and optimizes a multilayer perceptron that predicts the next pick or ban.
@@ -82,6 +83,7 @@ python scripts/train_oracle_elixir.py \
 
 Adjust `--epochs`, `--batch-size`, or `--learning-rate` to experiment with training dynamics. The best validation checkpoint is saved to the path
 supplied via `--model-path` and evaluation metrics are reported against a held-out test split.
+- Use `--dataset-export-dir <path>` (optionally paired with `--dataset-export-format csv`) to snapshot the latest aggregation tables for inspection.
 
 ### Stage 3 – Inference (coming soon)
 The inference CLI stub exists so that future work can plug in trained model weights and champion draft scenarios without reshaping the
@@ -95,7 +97,8 @@ python scripts/run_pipeline.py
 ```
 
 The script runs ingestion (unless `--skip-ingestion` is provided) and then launches the same training routine as Stage 2. All CLI flags exposed
-by the individual stages are available here as well, making it convenient to automate cron-style refreshes or rapid experiments.
+by the individual stages—including `--ingest-export-format` and `--dataset-export-dir`—are available here as well, making it convenient to
+automate cron-style refreshes or rapid experiments.
 
 ## Future Components
 - **Data Ingestion:** Automated scripts to fetch and preprocess new data daily.

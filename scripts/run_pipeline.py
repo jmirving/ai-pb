@@ -67,6 +67,30 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Assume data is already cached and skip the ingestion stage.",
     )
     parser.add_argument(
+        "--ingest-export-format",
+        dest="ingest_export_formats",
+        action="append",
+        choices=["csv"],
+        help=(
+            "Additional formats (beyond parquet) to export during ingestion. "
+            "Repeat to request multiple formats."
+        ),
+    )
+    parser.add_argument(
+        "--dataset-export-dir",
+        help="Optional directory where DraftDataset will emit intermediate CSV snapshots.",
+    )
+    parser.add_argument(
+        "--dataset-export-format",
+        dest="dataset_export_formats",
+        action="append",
+        choices=["csv"],
+        help=(
+            "Additional formats for DraftDataset intermediate exports. "
+            "Repeat to request multiple formats."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
@@ -88,6 +112,7 @@ def run_pipeline(args: argparse.Namespace) -> None:
             source_path=args.source_path,
             processed_dir=args.processed_dir,
             force_refresh=False,
+            export_formats=args.ingest_export_formats,
         )
         logging.info("Ingestion summary: %s", ingest_summary)
 
@@ -99,6 +124,8 @@ def run_pipeline(args: argparse.Namespace) -> None:
         epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.learning_rate,
+        dataset_export_dir=args.dataset_export_dir,
+        dataset_export_formats=args.dataset_export_formats,
     )
 
 

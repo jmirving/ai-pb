@@ -1,4 +1,5 @@
 import unittest
+
 import pandas as pd
 
 from pbai.data.dataset import DraftDataset
@@ -8,7 +9,7 @@ class FakeIngestionService:
     def __init__(self, dataframe: pd.DataFrame):
         self._df = dataframe
 
-    def get_all_data_df(self, force_refresh: bool = False) -> pd.DataFrame:
+    def get_all_data_df(self, force_refresh: bool = False, export_formats=None) -> pd.DataFrame:
         return self._df.copy()
 
 
