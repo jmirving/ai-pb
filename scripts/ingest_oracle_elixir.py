@@ -52,7 +52,6 @@ def ingest_oracle_elixir(
             "Pass --source-path to point to the file."
         )
 
-    logging.info("Loading Oracle's Elixir export from %s", source_path)
     repository = FileRepository(processed_dir)
     service = DataIngestionService(
         repository,
@@ -81,11 +80,7 @@ def ingest_oracle_elixir(
         "team_rows": len(teams_df),
         "processed_dir": processed_dir,
     }
-    logging.info(
-        "Oracle's Elixir data cached (all=%(all_rows)d, players=%(player_rows)d, "
-        "teams=%(team_rows)d) in %(processed_dir)s",
-        summary,
-    )
+
     return summary
 
 

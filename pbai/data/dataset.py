@@ -328,7 +328,6 @@ class DraftDataset(Dataset):
         grouped_games = self.data.groupby(['seriesid', 'gameid'])
 
         for (seriesid, gameid), game_rows in grouped_games:
-            logging.info(f"Processing series %s game %s", seriesid, gameid)
 
             blue_rows = game_rows[game_rows['side'].str.lower() == 'blue']
             red_rows = game_rows[game_rows['side'].str.lower() == 'red']
@@ -367,9 +366,9 @@ class DraftDataset(Dataset):
                 champion_name = row.get(column_name)
                 champion_index = self._normalize_champion_id(champion_name)
 
-                if champion_index == 0:
+                if champion_index == 0 & column_prefix == 'pick':
                     logging.warning(
-                        "Encountered missing champion for %s %s %s in series %s game %s; skipping sample",
+                        "Encountered missing champion in picks for %s %s %s in series %s game %s; skipping sample",
                         side,
                         action_type,
                         action_number,
@@ -400,7 +399,6 @@ class DraftDataset(Dataset):
 
     def __getitem__(self, idx):
         row = self.samples[idx]
-        #logging.info(f"Row: {row}")
         draft_sequence, target, already_picked_or_banned = self.draft_processor.process(row)
         output_mask = self.get_output_mask(already_picked_or_banned)
         # Shift target down by 1 if not MISSING (0)
