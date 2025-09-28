@@ -1,5 +1,6 @@
 import logging
-from typing import Tuple, Dict, List
+from pathlib import Path
+from typing import Tuple, Dict, List, Optional, Sequence, Union, Iterable
 import pandas as pd
 import torch
 from torch.utils.data import Dataset
@@ -16,9 +17,18 @@ class DraftDataset(Dataset):
     It does NOT perform any file reading, raw data cleaning, or caching directly.
     """
     
-    def __init__(self, ingestion_service: DataIngestionService):
+    def __init__(
+        self,
+        ingestion_service: DataIngestionService,
+        export_dir: Optional[Union[str, Path]] = None,
+        export_formats: Optional[Sequence[str]] = None,
+    ):
         # Aggregate and filter the raw data
-        self.data = self.aggregate_training_data(ingestion_service)
+        self.data = self.aggregate_training_data(
+            ingestion_service,
+            export_dir=export_dir,
+            export_formats=export_formats,
+        )
         # Champion enum and mapping setup
         # This mapping is used to convert champion names to sequential indices for model input/output.
         self.champ_enum = champ_enum.create_champ_enum()
@@ -43,7 +53,47 @@ class DraftDataset(Dataset):
         self.samples = self._preprocess_samples()
     
     @staticmethod
-    def aggregate_training_data(service: DataIngestionService) -> pd.DataFrame:
+    def _normalize_export_formats(
+        export_formats: Optional[Sequence[str]],
+        default_to_csv: bool = False,
+    ) -> List[str]:
+        if export_formats is None:
+            return ["csv"] if default_to_csv else []
+        if isinstance(export_formats, str):
+            normalized_iterable: Iterable = [export_formats]
+        else:
+            normalized_iterable = export_formats
+        normalized: List[str] = []
+        for fmt in normalized_iterable:
+            if not fmt:
+                continue
+            normalized.append(str(fmt).lower())
+        if not normalized and default_to_csv:
+            normalized.append("csv")
+        return normalized
+
+    @staticmethod
+    def _export_dataframe(
+        dataframe: pd.DataFrame,
+        export_dir: Optional[Union[str, Path]],
+        stem: str,
+        export_formats: Sequence[str],
+    ) -> None:
+        if not export_dir or not export_formats:
+            return
+        export_path = Path(export_dir)
+        export_path.mkdir(parents=True, exist_ok=True)
+        normalized = {fmt.lower() for fmt in export_formats}
+        if "csv" in normalized:
+            target_path = export_path / f"{stem}.csv"
+            dataframe.to_csv(target_path, index=False)
+
+    @staticmethod
+    def aggregate_training_data(
+        service: DataIngestionService,
+        export_dir: Optional[Union[str, Path]] = None,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> pd.DataFrame:
         """
         Aggregate and filter Oracle's Elixir data for model training:
         - Only use the latest patch
@@ -51,8 +101,14 @@ class DraftDataset(Dataset):
         - Ensure data is ordered by seriesid, gameid, and draft event order
         """
         logging.info("Aggregating training data")
+        normalized_formats = DraftDataset._normalize_export_formats(
+            export_formats,
+            default_to_csv=export_dir is not None,
+        )
+        service_export_formats = normalized_formats or None
+
         # 1. Get all data
-        all_data = service.get_all_data_df()
+        all_data = service.get_all_data_df(export_formats=service_export_formats)
         # 2. Find the latest patch
         if all_data['patch'].dtype == object:
             # Try to convert to float for proper sorting if possible
@@ -69,6 +125,26 @@ class DraftDataset(Dataset):
         team_data = patch_data[patch_data['participantid'].isin([100, 200])].copy()
         # 5. Infer series IDs based on teamid, league, split, year, and game number reset
         team_data = DraftDataset._infer_series_ids(team_data)
+
+        # Export intermediate tables when requested
+        DraftDataset._export_dataframe(
+            all_data,
+            export_dir,
+            "all_data",
+            normalized_formats,
+        )
+        DraftDataset._export_dataframe(
+            patch_data,
+            export_dir,
+            "patch_data",
+            normalized_formats,
+        )
+        DraftDataset._export_dataframe(
+            team_data,
+            export_dir,
+            "team_data",
+            normalized_formats,
+        )
         # 6. Order by seriesid, gameid, and draft event order (if available)
         sort_cols = [col for col in ['seriesid', 'gameid', 'eventid', 'pickbannumber', 'order'] if col in team_data.columns]
         if sort_cols:

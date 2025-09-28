@@ -19,6 +19,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 import os
 import time
+from typing import Optional, Sequence
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -36,7 +37,11 @@ def get_optimizer(parameters, lr=0.001):
     import torch.optim as optim
     return optim.Adam(parameters, lr=lr)
 
-def initialize_data_ingestion_service(oracle_elixir_path=None, processed_data_dir="data/processed"):
+def initialize_data_ingestion_service(
+    oracle_elixir_path=None,
+    processed_data_dir="data/processed",
+    export_formats: Optional[Sequence[str]] = None,
+):
     """
     Initialize and return a DataService object.
     
@@ -55,7 +60,11 @@ def initialize_data_ingestion_service(oracle_elixir_path=None, processed_data_di
         logging.error(f"Oracle's Elixir data file not found: {oracle_elixir_path}")
         return None
     
-    return DataIngestionService(repository, oracle_elixir_path)
+    return DataIngestionService(
+        repository,
+        oracle_elixir_path,
+        export_formats=export_formats,
+    )
 
 
 def print_sample_predictions(masked_outputs, batch, dataset, is_train):
@@ -150,7 +159,17 @@ def evaluate_model(model, data_loader, loss_function, device='cpu'):
     return avg_loss, accuracy
 
 
-def train_oracle_elixir(oracle_elixir_path=None, processed_data_dir="data/processed", model_path="models/draft_mlp_oracle_elixir.pth", epochs=20, batch_size=32, lr=0.001):
+def train_oracle_elixir(
+    oracle_elixir_path=None,
+    processed_data_dir="data/processed",
+    model_path="models/draft_mlp_oracle_elixir.pth",
+    epochs=20,
+    batch_size=32,
+    lr=0.001,
+    ingestion_export_formats: Optional[Sequence[str]] = None,
+    dataset_export_dir: Optional[str] = None,
+    dataset_export_formats: Optional[Sequence[str]] = None,
+):
     set_seed(42)
     
     # Device selection
@@ -158,7 +177,11 @@ def train_oracle_elixir(oracle_elixir_path=None, processed_data_dir="data/proces
     logging.info(f"Using device: {device}")
     
     # Initialize data service
-    data_ingestion_service = initialize_data_ingestion_service(oracle_elixir_path=oracle_elixir_path, processed_data_dir=processed_data_dir)
+    data_ingestion_service = initialize_data_ingestion_service(
+        oracle_elixir_path=oracle_elixir_path,
+        processed_data_dir=processed_data_dir,
+        export_formats=ingestion_export_formats,
+    )
     
     if data_ingestion_service is None:
         logging.error("Data Ingestion Service not initialized")
@@ -166,7 +189,11 @@ def train_oracle_elixir(oracle_elixir_path=None, processed_data_dir="data/proces
     
     try:
         # --- DATASET CREATION ---
-        dataset = DraftDataset(data_ingestion_service)
+        dataset = DraftDataset(
+            data_ingestion_service,
+            export_dir=dataset_export_dir,
+            export_formats=dataset_export_formats,
+        )
         
         if dataset is None:
             logging.error("Failed to create dataset")

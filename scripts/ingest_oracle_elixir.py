@@ -30,6 +30,7 @@ def ingest_oracle_elixir(
     source_path: str,
     processed_dir: str = "data/processed",
     force_refresh: bool = False,
+    export_formats: list[str] | None = None,
 ) -> dict:
     """Materialize Oracle's Elixir data and return a short summary.
 
@@ -38,6 +39,8 @@ def ingest_oracle_elixir(
         processed_dir: Directory where parquet caches should live.
         force_refresh: Whether to ignore cached parquet files and reload
             the CSV even if it has not changed.
+        export_formats: Optional list of additional formats (e.g., ``["csv"]``)
+            to emit alongside the default parquet outputs.
 
     Returns:
         Dictionary containing counts for the datasets that were cached.
@@ -51,7 +54,11 @@ def ingest_oracle_elixir(
 
     logging.info("Loading Oracle's Elixir export from %s", source_path)
     repository = FileRepository(processed_dir)
-    service = DataIngestionService(repository, source_path)
+    service = DataIngestionService(
+        repository,
+        source_path,
+        export_formats=export_formats,
+    )
 
     # ``get_all_data_df`` performs the heavy lifting of saving a versioned copy
     # to disk whenever the CSV is newer than the cached parquet.
@@ -64,8 +71,8 @@ def ingest_oracle_elixir(
     teams_df = service.get_teams_df()
 
     version = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-    repository.save_raw_player_data(players_df, version)
-    repository.save_raw_team_data(teams_df, version)
+    repository.save_raw_player_data(players_df, version, export_formats=export_formats)
+    repository.save_raw_team_data(teams_df, version, export_formats=export_formats)
     repository.cleanup_old_versions()
 
     summary = {
@@ -106,6 +113,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Ignore cached parquet files and reload the CSV from disk.",
     )
     parser.add_argument(
+        "--export-format",
+        dest="export_formats",
+        action="append",
+        choices=["csv"],
+        help=(
+            "Additional artifact formats to materialize alongside parquet caches. "
+            "Repeat to request multiple formats."
+        ),
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
@@ -125,6 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         source_path=args.source_path,
         processed_dir=args.processed_dir,
         force_refresh=args.force_refresh,
+        export_formats=args.export_formats,
     )
 
     print("Oracle's Elixir data cached:")

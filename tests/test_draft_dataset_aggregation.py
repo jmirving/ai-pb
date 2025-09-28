@@ -1,4 +1,7 @@
 import unittest
+import tempfile
+from pathlib import Path
+
 import pandas as pd
 
 from pbai.data.dataset import DraftDataset
@@ -74,7 +77,7 @@ class DraftDatasetAggregateTrainingDataTest(unittest.TestCase):
             def __init__(self, df):
                 self._df = df
 
-            def get_all_data_df(self):
+            def get_all_data_df(self, export_formats=None):
                 return self._df.copy()
 
         aggregated = DraftDataset.aggregate_training_data(_Service(self.raw_dataframe))
@@ -127,7 +130,7 @@ class DraftDatasetAggregateTrainingDataTest(unittest.TestCase):
             def __init__(self, df):
                 self._df = df
 
-            def get_all_data_df(self):
+            def get_all_data_df(self, export_formats=None):
                 return self._df.copy()
 
         aggregated = DraftDataset.aggregate_training_data(_Service(dataframe))
@@ -168,12 +171,42 @@ class DraftDatasetAggregateTrainingDataTest(unittest.TestCase):
             def __init__(self, df):
                 self._df = df
 
-            def get_all_data_df(self):
+            def get_all_data_df(self, export_formats=None):
                 return self._df.copy()
 
         aggregated = DraftDataset.aggregate_training_data(_Service(dataframe))
 
         self.assertTrue(aggregated.empty)
+
+    def test_exports_intermediate_tables_when_requested(self):
+        class _Service:
+            def __init__(self, df):
+                self._df = df
+                self.export_formats_seen = None
+
+            def get_all_data_df(self, export_formats=None):
+                self.export_formats_seen = export_formats
+                return self._df.copy()
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            service = _Service(self.raw_dataframe)
+            DraftDataset.aggregate_training_data(
+                service,
+                export_dir=tmpdir,
+                export_formats=["csv"],
+            )
+
+            self.assertIsNotNone(service.export_formats_seen)
+            export_path = Path(tmpdir)
+            for stem, expected_rows in {
+                "all_data": len(self.raw_dataframe),
+                "patch_data": 3,
+                "team_data": 2,
+            }.items():
+                csv_path = export_path / f"{stem}.csv"
+                self.assertTrue(csv_path.exists(), msg=f"Missing export for {stem}")
+                exported = pd.read_csv(csv_path)
+                self.assertEqual(len(exported), expected_rows)
 
 
 class DraftDatasetInferSeriesIdsTest(unittest.TestCase):
@@ -348,7 +381,7 @@ class DraftDatasetAggregateTrainingDataNonNumericPatchTest(unittest.TestCase):
             def __init__(self, df):
                 self._df = df
 
-            def get_all_data_df(self):
+            def get_all_data_df(self, export_formats=None):
                 return self._df.copy()
 
         aggregated = DraftDataset.aggregate_training_data(_Service(dataframe))

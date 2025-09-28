@@ -6,7 +6,7 @@ import os
 import pickle
 import glob
 from pathlib import Path
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Sequence
 import pandas as pd
 import logging
 from .repository import DataRepository
@@ -34,10 +34,41 @@ class FileRepository(DataRepository):
         
         logging.info(f"FileRepository initialized with base path: {self.base_path}")
     
-    def save_all_raw_data(self, all_data: pd.DataFrame, version: str) -> None:
+    def _normalize_export_formats(
+        self, export_formats: Optional[Sequence[str]]
+    ) -> List[str]:
+        if not export_formats:
+            return []
+        if isinstance(export_formats, str):
+            return [export_formats.lower()]
+        normalized: List[str] = []
+        for fmt in export_formats:
+            if fmt is None:
+                continue
+            normalized.append(str(fmt).lower())
+        return normalized
+
+    def _write_optional_exports(
+        self,
+        dataframe: pd.DataFrame,
+        file_path: Path,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
+        normalized_formats = set(self._normalize_export_formats(export_formats))
+        if "csv" in normalized_formats:
+            csv_path = file_path.with_suffix(".csv")
+            dataframe.to_csv(csv_path, index=False)
+
+    def save_all_raw_data(
+        self,
+        all_data: pd.DataFrame,
+        version: str,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
         """Save all data with version tracking"""
         file_path = self.all_dir / f"all_{version}.parquet"
         all_data.to_parquet(file_path)
+        self._write_optional_exports(all_data, file_path, export_formats)
         metadata = {
             'version': version,
             'row_count': len(all_data),
@@ -58,9 +89,15 @@ class FileRepository(DataRepository):
         logging.info(f"Loaded all data: {len(all_data)} rows from {latest_file}")
         return all_data
     
-    def save_raw_series_data(self, series: pd.DataFrame) -> None:
+    def save_raw_series_data(
+        self,
+        series: pd.DataFrame,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
         """Save series grouping and fearless detection results"""
-        series.to_parquet(self.series_dir / "series_data.parquet")
+        series_path = self.series_dir / "series_data.parquet"
+        series.to_parquet(series_path)
+        self._write_optional_exports(series, series_path, export_formats)
         metadata = {
             'row_count': len(series),
             'columns': list(series.columns),
@@ -110,10 +147,16 @@ class FileRepository(DataRepository):
     #     except FileNotFoundError:
     #         return pd.DataFrame()
     
-    def save_raw_player_data(self, player_data: pd.DataFrame, version: str) -> None:
+    def save_raw_player_data(
+        self,
+        player_data: pd.DataFrame,
+        version: str,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
         """Save player data (participantid 1-10)"""
         file_path = self.players_dir / f"players_{version}.parquet"
         player_data.to_parquet(file_path)
+        self._write_optional_exports(player_data, file_path, export_formats)
         metadata = {
             'version': version,
             'row_count': len(player_data),
@@ -134,10 +177,16 @@ class FileRepository(DataRepository):
         logging.info(f"Loaded player data: {len(player_data)} rows from {latest_file}")
         return player_data
     
-    def save_raw_team_data(self, team_data: pd.DataFrame, version: str) -> None:
+    def save_raw_team_data(
+        self,
+        team_data: pd.DataFrame,
+        version: str,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
         """Save team data (participantid 100, 200)"""
         file_path = self.teams_dir / f"teams_{version}.parquet"
         team_data.to_parquet(file_path)
+        self._write_optional_exports(team_data, file_path, export_formats)
         metadata = {
             'version': version,
             'row_count': len(team_data),

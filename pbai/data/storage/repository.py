@@ -3,7 +3,7 @@ Abstract repository interface for data persistence.
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Sequence
 import pandas as pd
 
 
@@ -11,7 +11,12 @@ class DataRepository(ABC):
     """Abstract interface for data persistence"""
     
     @abstractmethod
-    def save_all_raw_data(self, games: pd.DataFrame, version: str) -> None:
+    def save_all_raw_data(
+        self,
+        games: pd.DataFrame,
+        version: str,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
         """Save processed game data with version tracking"""
         pass
     
@@ -21,7 +26,11 @@ class DataRepository(ABC):
         pass
     
     @abstractmethod
-    def save_raw_series_data(self, series: pd.DataFrame) -> None:
+    def save_raw_series_data(
+        self,
+        series: pd.DataFrame,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
         """Save series grouping and fearless detection results"""
         pass
     
@@ -31,7 +40,12 @@ class DataRepository(ABC):
         pass
     
     @abstractmethod
-    def save_raw_player_data(self, players: pd.DataFrame, version: str) -> None:
+    def save_raw_player_data(
+        self,
+        players: pd.DataFrame,
+        version: str,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
         """Save player data (participantid 1-10)"""
         pass
     
@@ -41,7 +55,12 @@ class DataRepository(ABC):
         pass
 
     @abstractmethod
-    def save_raw_team_data(self, teams: pd.DataFrame, version: str) -> None:
+    def save_raw_team_data(
+        self,
+        teams: pd.DataFrame,
+        version: str,
+        export_formats: Optional[Sequence[str]] = None,
+    ) -> None:
         """Save team data (participantid 100, 200)"""
         pass
     
