@@ -173,6 +173,15 @@ class DraftDatasetPreprocessSamplesTest(unittest.TestCase):
         normalized_index = dataset._normalize_champion_id("KAI'SA") - 1
         self.assertEqual(mask[normalized_index], 0)
 
+    def test_idx2champion_uses_sanitized_names(self):
+        dataset = DraftDataset(FakeIngestionService(self.dataframe))
+
+        normalized_index = dataset._normalize_champion_id("KAI'SA")
+        self.assertEqual(
+            dataset.idx2champion[normalized_index],
+            dataset.champion_sanitizer.sanitize("KAI'SA"),
+        )
+
 
 if __name__ == '__main__':
     unittest.main()
