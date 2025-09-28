@@ -366,7 +366,7 @@ class DraftDataset(Dataset):
                 champion_name = row.get(column_name)
                 champion_index = self._normalize_champion_id(champion_name)
 
-                if champion_index == 0 & column_prefix == 'pick':
+                if champion_index == 0 and column_prefix == 'pick':
                     logging.warning(
                         "Encountered missing champion in picks for %s %s %s in series %s game %s; skipping sample",
                         side,
