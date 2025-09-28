@@ -39,13 +39,13 @@ class DraftDataset(Dataset):
         # Add MISSING as index 0 (valid input, never valid output)
         self.missing_key = self.champion_sanitizer.sanitize('MISSING')
         self.champion2idx[self.missing_key] = 0
-        self.idx2champion[0] = 'MISSING'
+        self.idx2champion[0] = self.missing_key
         # Map real champions to indices 1-170 (excluding 'MISSING')
         real_champions = [name for name, member in self.champ_enum.__members__.items() if name != 'MISSING']
         for i, champ_name in enumerate(real_champions, start=1):
             sanitized_name = self.champion_sanitizer.sanitize(champ_name)
             self.champion2idx[sanitized_name] = i
-            self.idx2champion[i] = champ_name
+            self.idx2champion[i] = sanitized_name
         self.num_champions = len(self.champion2idx)
         # TODO: If you want the model to learn series-level strategy (across all games in a series),
         #       increase draft_features (e.g., to 100) and provide the full series draft history as input.
