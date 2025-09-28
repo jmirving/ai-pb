@@ -124,8 +124,11 @@ class DraftDatasetPreprocessSamplesTest(unittest.TestCase):
         # The second game should inherit every champion picked in game one via
         # fearless-draft rules.
         fearless_expected = {
-            'CAITLYN', 'LUX', 'LEONA', 'JINX', 'VI',
-            'SERAPHINE', 'ASHE', 'BLITZCRANK', 'MORGANA', 'THRESH',
+            dataset.champion_sanitizer.sanitize(name)
+            for name in [
+                'CAITLYN', 'LUX', 'LEONA', 'JINX', 'VI',
+                'SERAPHINE', 'ASHE', 'BLITZCRANK', 'MORGANA', 'THRESH',
+            ]
         }
         second_game_first_sample = dataset.samples[20]
         self.assertSetEqual(second_game_first_sample['already_picked_or_banned'], fearless_expected)
@@ -150,6 +153,25 @@ class DraftDatasetPreprocessSamplesTest(unittest.TestCase):
         # The follow-up event should carry the trimmed ban forward as context.
         second_sample = dataset.samples[1]
         self.assertEqual(second_sample['draft_sequence'][0], expected_index)
+
+    def test_punctuation_is_removed_from_champion_names(self):
+        messy_dataframe = self.dataframe.copy()
+        messy_dataframe.loc[3, 'pick5'] = "Kai’Sa"  # curly apostrophe
+
+        dataset = DraftDataset(FakeIngestionService(messy_dataframe))
+
+        sanitized = dataset.champion_sanitizer.sanitize("Kai’Sa")
+        baseline = dataset.champion_sanitizer.sanitize("KAI'SA")
+        self.assertEqual(sanitized, baseline)
+
+        last_sample = dataset.samples[39]
+        self.assertEqual(
+            last_sample['target'],
+            dataset._normalize_champion_id("KAI'SA"),
+        )
+        mask = dataset.get_output_mask({baseline})
+        normalized_index = dataset._normalize_champion_id("KAI'SA") - 1
+        self.assertEqual(mask[normalized_index], 0)
 
 
 if __name__ == '__main__':

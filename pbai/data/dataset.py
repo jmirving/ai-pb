@@ -6,6 +6,7 @@ import torch
 from torch.utils.data import Dataset
 import numpy as np
 from pbai.utils import champ_enum
+from pbai.utils.champion_sanitizer import ChampionSanitizer
 from pbai.utils.draft_order import DRAFT_ORDER
 from pbai.data.processors import DraftProcessor
 from .data_ingestion_service import DataIngestionService
@@ -32,15 +33,18 @@ class DraftDataset(Dataset):
         # Champion enum and mapping setup
         # This mapping is used to convert champion names to sequential indices for model input/output.
         self.champ_enum = champ_enum.create_champ_enum()
+        self.champion_sanitizer = ChampionSanitizer()
         self.champion2idx = {}
         self.idx2champion = {}
         # Add MISSING as index 0 (valid input, never valid output)
-        self.champion2idx['MISSING'] = 0
+        self.missing_key = self.champion_sanitizer.sanitize('MISSING')
+        self.champion2idx[self.missing_key] = 0
         self.idx2champion[0] = 'MISSING'
         # Map real champions to indices 1-170 (excluding 'MISSING')
         real_champions = [name for name, member in self.champ_enum.__members__.items() if name != 'MISSING']
         for i, champ_name in enumerate(real_champions, start=1):
-            self.champion2idx[champ_name] = i
+            sanitized_name = self.champion_sanitizer.sanitize(champ_name)
+            self.champion2idx[sanitized_name] = i
             self.idx2champion[i] = champ_name
         self.num_champions = len(self.champion2idx)
         # TODO: If you want the model to learn series-level strategy (across all games in a series),
@@ -287,15 +291,12 @@ class DraftDataset(Dataset):
         """Convert champion name to sequential index (0, 1, 2, ...)."""
         if pd.isna(champion_name) or champion_name == 'nan':
             champion_name = "MISSING"
-        
-        # Normalize spacing/casing because Oracle's Elixir exports often include
-        # padding around champion names. Whitespace would otherwise cause a
-        # lookup miss and mark the champion as ``MISSING`` which discards the
-        # sample entirely (and tanks model accuracy).
-        champion_name = str(champion_name).strip().upper()
-        
-        # Return sequential index
-        return self.champion2idx.get(champion_name, self.champion2idx['MISSING'])
+
+        champion_name = self.champion_sanitizer.sanitize(champion_name)
+        if not champion_name:
+            champion_name = self.missing_key
+
+        return self.champion2idx.get(champion_name, self.champion2idx[self.missing_key])
     
     def get_output_mask(self, already_picked_or_banned):
         """
@@ -351,7 +352,9 @@ class DraftDataset(Dataset):
                     pick_col = f'pick{pick_number}'
                     if pick_col in prev_row and not pd.isna(prev_row[pick_col]):
                         # Fearless draft only restricts previously *picked* champions.
-                        fearless_picks.add(str(prev_row[pick_col]).upper())
+                        sanitized_pick = self.champion_sanitizer.sanitize(prev_row[pick_col])
+                        if sanitized_pick:
+                            fearless_picks.add(sanitized_pick)
 
             used_champions = set(fearless_picks)
             draft_sequence = [0] * self.draft_features
@@ -384,7 +387,9 @@ class DraftDataset(Dataset):
                 )
 
                 if pd.notna(champion_name):
-                    used_champions.add(str(champion_name).upper())
+                    sanitized_name = self.champion_sanitizer.sanitize(champion_name)
+                    if sanitized_name:
+                        used_champions.add(sanitized_name)
 
                 draft_sequence[event_index] = champion_index
 
